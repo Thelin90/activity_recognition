@@ -30,7 +30,6 @@ double_type_names = [
 ]
 
 target_column = 'activity_id'
-
 default_drop_col = 'user_id'
 
 target_values = [
@@ -58,4 +57,9 @@ split_dataframe_weight = [
     0.1,
     0.1,
     0.1
+]
+
+knnr_train_test_weight = [
+    0.7,
+    0.3
 ]

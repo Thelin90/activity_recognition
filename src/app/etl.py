@@ -3,11 +3,14 @@ from src.modules.column_datatypes_definition import \
     split_dataframe_weight, \
     target_column,\
     target_values, \
-    default_drop_col
+    default_drop_col, \
+    knnr_train_test_weight
 from src.modules.env.config import TRAIN_CSV_PATH, DEF_CSV_PATH
-from pyspark.sql.functions import countDistinct, when, udf
+from pyspark.sql.functions import udf
 from pyspark.sql.types import DoubleType, IntegerType, StringType
 
+import pandas as pd
+import numpy as np
 import os
 import logging
 
@@ -62,13 +65,12 @@ class ETL(object):
         if not os.path.isfile(TRAIN_CSV_PATH):
             df = self.extract(DEF_CSV_PATH)
             df = self.transform(df)
-            dfs = df.randomSplit(split_dataframe_weight)
+            dfs = split_dataframe(df, True)
             write_split_dataset(dfs)
-        else:
-            df = self.extract(TRAIN_CSV_PATH)
-            df = self.transform(df)
 
-        return df
+        df = self.extract(TRAIN_CSV_PATH)
+
+        return self.transform(df)
 
     def transform(self, df):
         df = clean_columns_to_double(df)
@@ -77,13 +79,30 @@ class ETL(object):
         df = df.drop(default_drop_col)
         df = clean_target_column_to_integer(df)
 
-        return df
+        train, test = split_dataframe(df, False)
 
-    def load(self, df):
-        df_ = df.groupBy(target_column).count()
-        df_.show()
-        logging.info(df.printSchema())
-        logging.info('total rows: ' + f'{df.count()}')
+        # extract train and some test data to validate against
+        train_y = convert_col_to_list(train, target_column)
+        train_x = convert_col_to_list(train, double_type_names)
+        test_y = convert_col_to_list(test, target_column)
+        test_x = convert_col_to_list(test, double_type_names)
+
+        return train_x, train_y, test_x, test_y
+
+    def load(self, results):
+        logging.info('results')
+
+        df1 = self.spark.createDataFrame(pd.DataFrame(results[0], columns=['predicted_target']))
+        df2 = self.spark.createDataFrame(pd.DataFrame(results[1], columns=['actual_target']))
+
+        write_to_csv(df1, 'predicted_targets')
+        write_to_csv(df2, 'actual_target')
+
+        logging.info('mse: ' f'{results[2]}')
+
+
+def convert_col_to_list(df, col_name):
+    return np.array(df.select(col_name).collect())
 
 
 def cast_to_datatype(df, colnames, datatype):
@@ -104,15 +123,18 @@ def cast_to_datatype(df, colnames, datatype):
     return df
 
 
-def split_dataframe(df):
+def split_dataframe(df, flag):
     """Function to split dataframe into subparts
 
     :param df: pyspark dataframe
+    :param flag: determine if the split is for the initial split of the dataset or for the KNNR model
     :return: a list containing pyspark dataframes with a weight
     of 0.1 (~1*10^6 -> ~83333-100000 rows per dataset (tot 12))
     """
-    dfs = [df.randomSplit(split_dataframe_weight)]
-    return dfs
+    if flag:
+        return [df.randomSplit(split_dataframe_weight)]
+    else:
+        return df.randomSplit(knnr_train_test_weight)
 
 
 def write_split_dataset(dfs):

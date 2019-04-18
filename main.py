@@ -1,3 +1,4 @@
+from src.app.knnRegressor import KNNRegression
 from src.app.spark_session import InitSpark
 from src.app.etl import ETL
 
@@ -12,11 +13,14 @@ def main():
     spark.conf.set("spark.debug.maxToStringFields", 100)
 
     etl = ETL(spark, ',', "true", "true")
-    df = etl.run()
+    train_x, train_y, test_x, test_y = etl.run()
 
-    etl.load(df)
+    knnr = KNNRegression(train_x, train_y, test_x, test_y, 5)
 
-    #print(df.schemaTypes())
+    # currently no cross validation, but would do this would some more time to explore the neighbours
+    results = knnr.run()
+
+    etl.load(results)
 
 
 if __name__ == "__main__":
