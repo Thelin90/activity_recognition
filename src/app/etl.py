@@ -5,13 +5,15 @@ from src.modules.column_datatypes_definition import \
     target_values, \
     default_drop_col, \
     knnr_train_test_weight
-from src.modules.env.config import TRAIN_CSV_PATH, DEF_CSV_PATH
+from src.modules.env.config import TRAIN_CSV_PATH, DEF_CSV_PATH, END_CSV_PATH, END_FOLDER_PATH
 from pyspark.sql.functions import udf, monotonically_increasing_id
 from pyspark.sql.types import DoubleType, IntegerType, StringType
 
 import pandas as pd
 import numpy as np
 import os
+import sys
+import shutil
 import logging
 
 logging.getLogger().setLevel(logging.INFO)
@@ -92,30 +94,48 @@ class ETL(object):
     def load(self, results):
         logging.info('results')
 
-        df1 = self.spark.createDataFrame(pd.DataFrame(results[0], columns=['predicted_target']))
-        df2 = self.spark.createDataFrame(pd.DataFrame(results[1], columns=['actual_target']))
+        df = create_final_df(results, self.spark)
 
-        df1 = df1.withColumn('id1', monotonically_increasing_id())
-        df2 = df2.withColumn('id2', monotonically_increasing_id())
-
-        target_parser = udf(typecast_target_to_str_value, StringType())
-        df1_parsed_targets = df1.withColumn('predicted_target', target_parser(df1['predicted_target']))
-        df2_parsed_targets = df2.withColumn('actual_target', target_parser(df2['actual_target']))
-
-        df3 = df1_parsed_targets.join(df2_parsed_targets, df1_parsed_targets.id1 == df2_parsed_targets.id2)
-        df3 = df3.select("predicted_target", "actual_target", "id1")
-
-        df3 = df3.withColumnRenamed('predicted_target', 'predicted_target_str')
-        df3 = df3.withColumnRenamed('actual_target', 'actual_target_str')
-        df3 = df3.withColumnRenamed('id1', 'id')
-
-        df3 = df3.join(df1, df1.id1 == df3.id)
-        df3 = df3.select("predicted_target", "predicted_target_str", "actual_target_str", "id")
-
-        write_to_csv(df3, 'end_result')
-        #write_to_csv(df2, 'actual_target')
+        write_to_csv(df, 'end_result')
 
         logging.info('mse: ' f'{results[2]}')
+
+
+def create_final_df(results, spark):
+    """
+
+    :param results:
+    :param spark:
+    :return:
+    """
+
+    if os.path.isfile(END_CSV_PATH):
+        try:
+            shutil.rmtree(END_FOLDER_PATH)
+        except OSError as e:
+            logging.warning(f'{e.filename}' '-'  f'{e.strerror}')
+
+    df1 = spark.createDataFrame(pd.DataFrame(results[0], columns=['predicted_target']))
+    df2 = spark.createDataFrame(pd.DataFrame(results[1], columns=['actual_target']))
+
+    df1 = df1.withColumn('id1', monotonically_increasing_id())
+    df2 = df2.withColumn('id2', monotonically_increasing_id())
+
+    target_parser = udf(typecast_target_to_str_value, StringType())
+    df1_parsed_targets = df1.withColumn('predicted_target', target_parser(df1['predicted_target']))
+    df2_parsed_targets = df2.withColumn('actual_target', target_parser(df2['actual_target']))
+
+    df3 = df1_parsed_targets.join(df2_parsed_targets, df1_parsed_targets.id1 == df2_parsed_targets.id2)
+    df3 = df3.select("predicted_target", "actual_target", "id1")
+
+    df3 = df3.withColumnRenamed('predicted_target', 'predicted_target_str')
+    df3 = df3.withColumnRenamed('actual_target', 'actual_target_str')
+    df3 = df3.withColumnRenamed('id1', 'id')
+
+    df3 = df3.join(df1, df1.id1 == df3.id)
+    df3 = df3.select("predicted_target", "predicted_target_str", "actual_target_str", "id")
+
+    return df3
 
 
 def convert_col_to_list(df, col_name):
@@ -210,7 +230,6 @@ def typecast_target_to_str_value(col_val):
     item = round(col_val)
 
     if 9 > item >= 0:
-        print(item)
         return target_values[item]
     else:
         return 'out of scope'
