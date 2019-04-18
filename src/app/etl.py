@@ -6,7 +6,7 @@ from src.modules.column_datatypes_definition import \
     default_drop_col, \
     knnr_train_test_weight
 from src.modules.env.config import TRAIN_CSV_PATH, DEF_CSV_PATH
-from pyspark.sql.functions import udf
+from pyspark.sql.functions import udf, monotonically_increasing_id
 from pyspark.sql.types import DoubleType, IntegerType, StringType
 
 import pandas as pd
@@ -74,7 +74,7 @@ class ETL(object):
 
     def transform(self, df):
         df = clean_columns_to_double(df)
-        targetparser = udf(typecast_target_value, StringType())
+        targetparser = udf(typecast_target_to_index_value, StringType())
         df = df.withColumn(target_column, targetparser(df[target_column]))
         df = df.drop(default_drop_col)
         df = clean_target_column_to_integer(df)
@@ -95,8 +95,25 @@ class ETL(object):
         df1 = self.spark.createDataFrame(pd.DataFrame(results[0], columns=['predicted_target']))
         df2 = self.spark.createDataFrame(pd.DataFrame(results[1], columns=['actual_target']))
 
-        write_to_csv(df1, 'predicted_targets')
-        write_to_csv(df2, 'actual_target')
+        df1 = df1.withColumn('id1', monotonically_increasing_id())
+        df2 = df2.withColumn('id2', monotonically_increasing_id())
+
+        target_parser = udf(typecast_target_to_str_value, StringType())
+        df1_parsed_targets = df1.withColumn('predicted_target', target_parser(df1['predicted_target']))
+        df2_parsed_targets = df2.withColumn('actual_target', target_parser(df2['actual_target']))
+
+        df3 = df1_parsed_targets.join(df2_parsed_targets, df1_parsed_targets.id1 == df2_parsed_targets.id2)
+        df3 = df3.select("predicted_target", "actual_target", "id1")
+
+        df3 = df3.withColumnRenamed('predicted_target', 'predicted_target_str')
+        df3 = df3.withColumnRenamed('actual_target', 'actual_target_str')
+        df3 = df3.withColumnRenamed('id1', 'id')
+
+        df3 = df3.join(df1, df1.id1 == df3.id)
+        df3 = df3.select("predicted_target", "predicted_target_str", "actual_target_str", "id")
+
+        write_to_csv(df3, 'end_result')
+        #write_to_csv(df2, 'actual_target')
 
         logging.info('mse: ' f'{results[2]}')
 
@@ -181,8 +198,19 @@ def clean_columns_to_double(df):
     return df
 
 
-def typecast_target_value(col_val):
+def typecast_target_to_index_value(col_val):
     """Function to change target value to a numerical one instead for the model (Y)
     """
     if col_val in str(target_values):
         return target_values.index(col_val)
+
+
+def typecast_target_to_str_value(col_val):
+    # ex: 2.5 -> 3, 2.4 -> 2
+    item = round(col_val)
+
+    if 9 > item >= 0:
+        print(item)
+        return target_values[item]
+    else:
+        return 'out of scope'
