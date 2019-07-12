@@ -373,7 +373,7 @@ stack them together, to be able to process data of the kind that exists in the o
 
 `KNNR` is good for datasets `< 100k`, so hence why.
 
-If I had more time I would do some more plotting, and probably also would like to try a `SGD` classifier, but this would probably
+I will try to do some more plotting, and probably also would like to try a `SGD` classifier, but this would probably
 take much more time.
 
 So there has been a balance of how can I create a production ready module, and still get good results.
