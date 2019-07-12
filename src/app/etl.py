@@ -59,7 +59,7 @@ class ETL(object):
         # sub parts of the original dataset into several files to try to apply
         # KNN on one or several datasets, however I will aim to do it on 1 to begin with.
         # The idea is to perform KNN on each and every file to then stack then combine
-        # them to get a solid model. If I had more time I would implement more of a SGD
+        # them to get a solid model. I would like to implement a SGD
         # approach on the whole dataset.
         #
         # This also gives me a fairly good overview of the data and I am able to analyze
